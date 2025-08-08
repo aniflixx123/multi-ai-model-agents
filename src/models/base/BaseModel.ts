@@ -1,3 +1,5 @@
+import { CachedResponse, ModelConfig, ModelMetrics } from "../../types/models";
+
 // BaseModel.ts - Abstract foundation for all models
 export abstract class BaseModel {
   protected modelId: string;

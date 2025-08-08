@@ -1,0 +1,52 @@
+name = "meeting-assistant-pro"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[ai]
+binding = "AI"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-kv-namespace-id"
+preview_id = "your-kv-preview-id"
+
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionManager"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["SessionManager"]
+
+[vars]
+ENVIRONMENT = "production"
+MAX_CONCURRENT_MODELS = "10"
+CACHE_TTL = "3600"
+
+[env.development]
+name = "meeting-assistant-dev"
+vars = { ENVIRONMENT = "development" }
+
+[env.staging]
+name = "meeting-assistant-staging"
+vars = { ENVIRONMENT = "staging" }
+
+[build]
+command = "npm run build"
+
+[dev]
+port = 8787
+local_protocol = "http"
+
+# Cloudflare AI models configuration
+[ai.models]
+transcription = "@cf/openai/whisper-large-v3"
+transcription_fast = "@cf/openai/whisper-tiny-en"
+reasoning = "@cf/qwen/qwq-32b-preview"
+sales_enterprise = "@cf/meta/llama-3.1-70b-instruct"
+sales_casual = "@cf/meta/llama-3.2-8b-instruct"
+technical_sales = "@cf/mistral/mistral-7b-instruct"
+code_expert = "@cf/qwen/qwen-2.5-coder-32b-instruct"
+simple_explain = "@cf/meta/llama-3.2-3b-instruct"
+quick_response = "@cf/meta/llama-3.2-1b-instruct"
+embeddings = "@cf/baai/bge-large-en-v1.5"

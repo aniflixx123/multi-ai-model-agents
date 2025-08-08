@@ -1,3 +1,25 @@
+// src/models/implementations/WhisperLarge.ts
+
+import { BaseModel } from '../base/BaseModel';
+import { 
+  ModelInput, 
+  ModelResponse, 
+  TranscriptionResult, 
+  Speaker, 
+  AudioQuality,
+  Segment
+} from '../../types/models';
+import { 
+  AdvancedAudioProcessor, 
+  NoiseReductionEngine, 
+  AudioQualityAnalyzer 
+} from '../../utils/audio/AudioProcessor';
+import { 
+  LanguageDetector, 
+  SpeakerDiarization 
+} from '../../utils/audio/AudioAnalyzer';
+import { AI } from '../../services/cloudflare/CloudflareAI';
+
 export class WhisperLarge extends BaseModel {
   private audioProcessor: AdvancedAudioProcessor;
   private noiseReducer: NoiseReductionEngine;
@@ -90,9 +112,9 @@ export class WhisperLarge extends BaseModel {
     });
 
     return {
-      text: response.text,
-      words: response.words,
-      segments: response.segments,
+      text: response.text || '',
+      words: response.words || [],
+      segments: response.segments || [],
       confidence: response.avg_logprob ? Math.exp(response.avg_logprob) : 0.9
     };
   }
@@ -117,6 +139,47 @@ export class WhisperLarge extends BaseModel {
     return enhanced;
   }
 
+  private addSpeakerLabels(text: string, speakers: Speaker[], segments?: Segment[]): string {
+    // Add speaker labels to transcription
+    if (!segments || segments.length === 0) {
+      return text;
+    }
+    
+    let labeledText = '';
+    let currentSpeaker = '';
+    
+    for (const segment of segments) {
+      // Find which speaker this segment belongs to
+      const speaker = this.findSpeakerForSegment(segment, speakers);
+      
+      if (speaker && speaker.id !== currentSpeaker) {
+        labeledText += `\n[${speaker.id}]: `;
+        currentSpeaker = speaker.id;
+      }
+      
+      labeledText += segment.text + ' ';
+    }
+    
+    return labeledText.trim();
+  }
+
+  private findSpeakerForSegment(segment: Segment, speakers: Speaker[]): Speaker | null {
+    // Find which speaker owns this time segment
+    for (const speaker of speakers) {
+      for (const speakerSegment of speaker.segments) {
+        if (this.segmentsOverlap(segment, speakerSegment)) {
+          return speaker;
+        }
+      }
+    }
+    return null;
+  }
+
+  private segmentsOverlap(seg1: Segment, seg2: Segment): boolean {
+    // Check if two segments overlap in time
+    return seg1.start < seg2.end && seg2.start < seg1.end;
+  }
+
   private correctCommonErrors(text: string): string {
     const corrections = {
       'gonna': 'going to',
@@ -135,6 +198,71 @@ export class WhisperLarge extends BaseModel {
     }
     
     return corrected;
+  }
+
+  private addIntelligentPunctuation(text: string): string {
+    // Add punctuation based on sentence patterns
+    let punctuated = text;
+    
+    // Add periods at natural sentence boundaries
+    punctuated = punctuated.replace(/([a-z])(\s+[A-Z])/g, '$1.$2');
+    
+    // Add question marks for questions
+    const questionWords = ['what', 'when', 'where', 'who', 'why', 'how', 'is', 'are', 'can', 'could', 'would', 'should'];
+    for (const word of questionWords) {
+      const regex = new RegExp(`(^|\\. )${word} [^.!?]+`, 'gi');
+      punctuated = punctuated.replace(regex, (match) => {
+        if (!match.endsWith('.') && !match.endsWith('?') && !match.endsWith('!')) {
+          return match + '?';
+        }
+        return match;
+      });
+    }
+    
+    // Ensure sentence ends with punctuation
+    if (!/[.!?]$/.test(punctuated)) {
+      punctuated += '.';
+    }
+    
+    return punctuated;
+  }
+
+  private formatTranscription(text: string): string {
+    // Format for readability
+    let formatted = text;
+    
+    // Capitalize first letter of sentences
+    formatted = formatted.replace(/(^|\. )([a-z])/g, (match, p1, p2) => p1 + p2.toUpperCase());
+    
+    // Fix spacing around punctuation
+    formatted = formatted.replace(/\s+([.!?,])/g, '$1');
+    formatted = formatted.replace(/([.!?])\s*/g, '$1 ');
+    
+    // Remove extra spaces
+    formatted = formatted.replace(/\s+/g, ' ').trim();
+    
+    // Break into paragraphs for long text
+    if (formatted.length > 500) {
+      const sentences = formatted.split('. ');
+      const paragraphs = [];
+      let currentParagraph = [];
+      
+      for (const sentence of sentences) {
+        currentParagraph.push(sentence);
+        if (currentParagraph.length >= 3) {
+          paragraphs.push(currentParagraph.join('. ') + '.');
+          currentParagraph = [];
+        }
+      }
+      
+      if (currentParagraph.length > 0) {
+        paragraphs.push(currentParagraph.join('. ') + '.');
+      }
+      
+      formatted = paragraphs.join('\n\n');
+    }
+    
+    return formatted;
   }
 
   private calculateTranscriptionConfidence(result: TranscriptionResult): number {

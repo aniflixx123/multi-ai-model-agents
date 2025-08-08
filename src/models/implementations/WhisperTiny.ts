@@ -1,6 +1,15 @@
+// src/models/implementations/WhisperTiny.ts
+
+import { BaseModel } from '../base/BaseModel';
+import { ModelInput, ModelResponse } from '../../types/models';
+import { StreamProcessor, AudioChunkBuffer } from '../../services/realtime/AudioStreamer';
+import { AdvancedAudioProcessor } from '../../utils/audio/AudioProcessor';
+import { AI } from '../../services/cloudflare/CloudflareAI';
+
 export class WhisperTiny extends BaseModel {
   private streamProcessor: StreamProcessor;
   private chunkBuffer: AudioChunkBuffer;
+  private audioProcessor: AdvancedAudioProcessor;
   
   constructor() {
     super('whisper-tiny', {
@@ -14,6 +23,7 @@ export class WhisperTiny extends BaseModel {
     
     this.streamProcessor = new StreamProcessor();
     this.chunkBuffer = new AudioChunkBuffer();
+    this.audioProcessor = new AdvancedAudioProcessor();
   }
 
   async processInternal(input: ModelInput): Promise<ModelResponse> {
@@ -108,6 +118,58 @@ export class WhisperTiny extends BaseModel {
     }
     
     return '';
+  }
+
+  private async transcribeChunk(audio: ArrayBuffer): Promise<string> {
+    // Transcribe a single audio chunk
+    try {
+      const result = await AI.run(this.config.modelName, {
+        audio: Array.from(new Uint8Array(audio)),
+        options: {
+          temperature: 0.3,
+          beam_size: 1,
+          vad_filter: false,
+          language: 'en'
+        }
+      });
+      
+      return result.text || '';
+    } catch (error) {
+      console.error('Chunk transcription error:', error);
+      return '';
+    }
+  }
+
+  private emitPartialResult(text: string): void {
+    // Emit partial transcription results for real-time feedback
+    // In a real implementation, this would send data through WebSocket or EventStream
+    if (typeof self !== 'undefined' && 'postMessage' in self) {
+      self.postMessage({
+        type: 'partial_transcription',
+        text,
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  private findOverlap(text1: string, text2: string): number {
+    // Find overlapping words between two text segments
+    const words1 = text1.split(' ');
+    const words2 = text2.split(' ');
+    
+    // Check for overlap at the end of text1 and beginning of text2
+    let maxOverlap = Math.min(words1.length, words2.length, 5); // Check up to 5 words
+    
+    for (let overlap = maxOverlap; overlap > 0; overlap--) {
+      const end1 = words1.slice(-overlap).join(' ');
+      const start2 = words2.slice(0, overlap).join(' ');
+      
+      if (end1.toLowerCase() === start2.toLowerCase()) {
+        return overlap;
+      }
+    }
+    
+    return 0;
   }
 
   private mergeChunks(chunks: string[]): string {
